@@ -1,6 +1,6 @@
 // src/services/api.js
 
-const API_URL = 'http://localhost:5001';
+const API_URL = 'https://foundit-full-stack.onrender.com';
 
 // --- Helper to get the auth token from localStorage ---
 const getToken = () => localStorage.getItem('userToken');

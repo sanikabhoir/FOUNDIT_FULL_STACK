@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiDb } from '../services/api';
 import { deleteImageFromLocal } from '../utils/imageStorage';
 import ItemCard from '../components/ItemCard';
-import { Shield, Users, Package, TrendingUp, LogOut, FileText, Trash2, Eye, ArrowLeft, Loader2, Clock, CheckCircle } from 'lucide-react';
+import { Shield, Users, Package, TrendingUp, LogOut, FileText, Trash2, Eye, ArrowLeft, Loader2, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const AdminDashboard = () => {
@@ -140,14 +140,6 @@ const AdminDashboard = () => {
       transition: { duration: 0.5 }
     }
   };
-  
-  // Custom loader component
-  const AdminLoader = () => (
-    <div className="text-center py-20">
-      <Loader2 className="w-12 h-12 text-teal-600 animate-spin mx-auto mb-4" />
-      <p className="text-xl font-semibold text-gray-700">Loading admin panel...</p>
-    </div>
-  );
 
   if (loading) {
     return (

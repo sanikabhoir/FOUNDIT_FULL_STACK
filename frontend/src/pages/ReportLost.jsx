@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 // --- MODIFIED IMPORTS ---
 import { apiDb } from '../services/api';
@@ -32,7 +32,6 @@ const ReportLost = ({ user }) => {
   const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [userData, setUserData] = useState(null);
   
   const [locationLoading, setLocationLoading] = useState(true);
   const [userLocation, setUserLocation] = useState(null);
@@ -52,8 +51,7 @@ const ReportLost = ({ user }) => {
     const initializeData = async () => {
       try {
         // --- API Call: Get User Profile ---
-        const profile = await apiDb.getUserProfile();
-        setUserData(profile);
+        await apiDb.getUserProfile();
       } catch (err) {
         console.error('Error fetching user data:', err);
       }

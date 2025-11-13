@@ -150,7 +150,7 @@ export const redactSensitiveData = (text) => {
   });
   redacted = redacted.replace(SENSITIVE_PATTERNS.PHONE, 'XXX-XXX-XXXX');
   redacted = redacted.replace(SENSITIVE_PATTERNS.EMAIL, (match) => {
-    const [local, domain] = match.split('@');
+    const domain = match.split('@')[1];
     return 'xxxx@' + domain;
   });
   redacted = redacted.replace(SENSITIVE_PATTERNS.SSN, 'XXX-XX-XXXX');

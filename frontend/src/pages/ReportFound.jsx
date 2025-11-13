@@ -32,7 +32,6 @@ const ReportFound = ({ user }) => {
   const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [userData, setUserData] = useState(null);
   
   const [locationLoading, setLocationLoading] = useState(true);
   const [userLocation, setUserLocation] = useState(null);
@@ -49,8 +48,8 @@ const ReportFound = ({ user }) => {
   const initializeData = useCallback(async () => {
     try {
         // --- API Call: Get User Profile ---
-        const profile = await apiDb.getUserProfile();
-        setUserData(profile);
+        await apiDb.getUserProfile();
+        // Note: User profile fetched but not displayed in this component
     } catch (err) {
         console.error('Error fetching user data:', err);
     }

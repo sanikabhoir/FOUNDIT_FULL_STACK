@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiDb } from '../services/api'; 
 import { deleteImageFromLocal } from '../utils/imageStorage';
-import ItemCard from '../components/ItemCard';
-import { Users, Package, TrendingUp, ArrowLeft, Trash2, Edit3, MessageSquare, CheckCircle, Clock } from 'lucide-react';
+import { Users, Package, TrendingUp, Trash2, Edit3, MessageSquare, CheckCircle, Clock } from 'lucide-react';
 
 // Animation helper for stats cards
 const AnimatedCounter = ({ value, duration = 1 }) => {

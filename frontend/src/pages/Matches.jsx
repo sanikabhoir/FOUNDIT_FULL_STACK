@@ -47,31 +47,25 @@ const Zap = ({ className }) => (
   </svg>
 );
 
-const TrendingUp = ({ className }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-  </svg>
-);
-
 const Matches = ({ user }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { item: initialItem, matches: initialMatches } = location.state || { item: null, matches: [] };
+  const { item: initialItem } = location.state || { item: null };
   
-  const [item, setItem] = useState(initialItem);
+  const [item] = useState(initialItem);
   const [matches, setMatches] = useState([]); 
   const [loading, setLoading] = useState(true);
 
   const isAdmin = localStorage.getItem('adminSession') === 'true';
   
   // 🎯 Function to navigate back to appropriate dashboard
-  const navigateBack = () => {
+  const navigateBack = useCallback(() => {
     if (isAdmin) {
       navigate('/admin-dashboard');
     } else {
       navigate('/dashboard');
     }
-  };
+  }, [isAdmin, navigate]);
   
   // Calculate similarity score between two items
   const calculateMatchScore = (item1, item2) => {
@@ -192,7 +186,7 @@ const Matches = ({ user }) => {
       } finally {
           setLoading(false);
       }
-  }, [initialItem, isAdmin]);
+  }, [initialItem, isAdmin, navigateBack]);
   
   useEffect(() => {
     fetchMatches();

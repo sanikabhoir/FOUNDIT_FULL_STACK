@@ -44,20 +44,15 @@ const Chat = ({ user }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { 
-    otherUserId, 
     otherUserEmail, 
     itemName, 
     chatId, 
     foundItemUserId, 
-    lostItemUserId, 
-    foundItemId, 
-    lostItemId 
+    lostItemUserId
   } = location.state || {};
   
   const [chatData, setChatData] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [foundItemData, setFoundItemData] = useState(null);
-  const [lostItemData, setLostItemData] = useState(null);
   
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -86,8 +81,6 @@ const Chat = ({ user }) => {
       
       setChatData(response.chat);
       setMessages(response.messages);
-      setFoundItemData(response.foundItem);
-      setLostItemData(response.lostItem);
       
       // Auto-scroll to the bottom
       setTimeout(() => {

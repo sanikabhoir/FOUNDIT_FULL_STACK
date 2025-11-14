@@ -18,7 +18,7 @@ const runAIAssistedMatch = async (newItem) => {
     const updatePromises = [];
     
     for (const otherItem of candidateItems) {
-        const matchScore = await calculateMatchScore(newItem.toObject(), otherItem);
+        const matchScore = await calculateMatchScore(newItem.toObject ? newItem.toObject() : newItem, otherItem);
         
         if (matchScore >= MATCH_THRESHOLD) {
             potentialMatches.push({ ...otherItem, matchScore });
@@ -136,6 +136,43 @@ const getPublicItems = async (req, res) => {
     }
 };
 
+// @desc    Get matches for a specific item
+// @route   GET /api/items/:id/matches
+const getItemMatches = async (req, res) => {
+    try {
+        const itemId = req.params.id;
+        
+        // Find the item
+        const item = await Item.findById(itemId).lean();
+        
+        if (!item) {
+            return res.status(404).json({ message: 'Item not found' });
+        }
+        
+        // Authorization check - user can only see matches for their own items or if admin
+        if (item.userId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+            return res.status(403).json({ message: 'Unauthorized to view matches for this item' });
+        }
+        
+        console.log(`🔍 Fetching matches for item: ${item.itemName} (${item.type})`);
+        
+        // Run the AI matching algorithm
+        const matches = await runAIAssistedMatch({ ...item, _id: itemId, toObject: () => item });
+        
+        console.log(`✅ Found ${matches.length} matches for ${item.itemName}`);
+        
+        res.json({ 
+            item,
+            matches,
+            matchCount: matches.length
+        });
+        
+    } catch (error) {
+        console.error('Get Item Matches Error:', error);
+        res.status(500).json({ message: 'Server error fetching matches' });
+    }
+};
+
 // @desc    Analyze image with AI
 // @route   POST /api/items/analyze-image
 const analyzeImage = async (req, res) => {
@@ -231,5 +268,6 @@ module.exports = {
     getAllItems, 
     runAIAssistedMatch,
     getPublicItems,
-    analyzeImage 
+    analyzeImage,
+    getItemMatches  // ⭐ NEW: Export the matches endpoint
 };

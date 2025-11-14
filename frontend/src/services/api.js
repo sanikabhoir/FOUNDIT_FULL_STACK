@@ -127,7 +127,10 @@ const apiDb = {
         method: 'DELETE' 
     }),
 
-    // ⭐ NEW: Image Analysis
+    // ⭐ NEW: Get matches for a specific item
+    getItemMatches: (itemId) => authFetch(`/api/items/${itemId}/matches`),
+
+    // ⭐ Image Analysis
     analyzeImage: (imageData) => authFetch('/api/items/analyze-image', {
         method: 'POST',
         body: JSON.stringify(imageData)

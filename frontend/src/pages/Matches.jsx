@@ -67,52 +67,6 @@ const Matches = ({ user }) => {
     }
   }, [isAdmin, navigate]);
   
-  // Calculate similarity score between two items
-  const calculateMatchScore = (item1, item2) => {
-    let score = 0;
-    
-    // Name similarity (40 points)
-    const name1 = (item1.itemName || '').toLowerCase();
-    const name2 = (item2.itemName || '').toLowerCase();
-    if (name1.includes(name2) || name2.includes(name1)) {
-      score += 40;
-    } else {
-      const words1 = name1.split(/\s+/);
-      const words2 = name2.split(/\s+/);
-      const commonWords = words1.filter(w => w.length > 2 && words2.includes(w));
-      score += Math.min(commonWords.length * 10, 40);
-    }
-    
-    // Description similarity (30 points)
-    const desc1 = (item1.description || '').toLowerCase();
-    const desc2 = (item2.description || '').toLowerCase();
-    if (desc1 && desc2) {
-      const descWords1 = desc1.split(/\s+/);
-      const descWords2 = desc2.split(/\s+/);
-      const commonDescWords = descWords1.filter(w => w.length > 2 && descWords2.includes(w));
-      score += Math.min(commonDescWords.length * 5, 30);
-    }
-    
-    // Location similarity (20 points)
-    const loc1 = (item1.locationShort || item1.location || '').toLowerCase();
-    const loc2 = (item2.locationShort || item2.location || '').toLowerCase();
-    if (loc1.includes(loc2) || loc2.includes(loc1)) {
-      score += 20;
-    }
-    
-    // Date proximity (10 points)
-    const date1 = new Date(item1.date);
-    const date2 = new Date(item2.date);
-    const daysDiff = Math.abs((date1 - date2) / (1000 * 60 * 60 * 24));
-    if (daysDiff <= 7) {
-      score += 10;
-    } else if (daysDiff <= 30) {
-      score += 5;
-    }
-    
-    return Math.min(Math.round(score), 100);
-  };
-  
   // --- Data Initialization/Fetching ---
   const fetchMatches = useCallback(async () => {
       // If we don't have item data, redirect back
@@ -125,59 +79,26 @@ const Matches = ({ user }) => {
       setLoading(true);
       try {
           const currentItemId = initialItem._id || initialItem.id;
-          const currentItemType = initialItem.type;
-          const oppositeType = currentItemType === 'lost' ? 'found' : 'lost';
           
-          console.log(`🔍 Fetching ${oppositeType} items to match with ${currentItemType} item:`, initialItem.itemName);
+          console.log(`🔍 Fetching server-calculated matches for item:`, initialItem.itemName);
           
-          // Fetch all items based on user type
-          let allItems = [];
-          if (isAdmin) {
-              allItems = await apiDb.getAllItems();
-          } else {
-              // For regular users, fetch all public items (excluding their own)
-              allItems = await apiDb.getPublicItems();
-          }
+          // Fetch the actual matches calculated by the server
+          const response = await apiDb.getItemMatches(currentItemId);
           
-          console.log(`📦 Total items fetched: ${allItems.length}`);
+          console.log(`📦 Server returned ${response.matches?.length || 0} matches`);
           
-          // Filter to find potential matches
-          const potentialMatches = allItems.filter(otherItem => {
-              const otherItemId = otherItem._id || otherItem.id;
-              
-              // Skip the current item itself
-              if (otherItemId === currentItemId) return false;
-              
-              // Must be opposite type (lost matches with found, found matches with lost)
-              if (otherItem.type !== oppositeType) return false;
-              
-              // Don't match user's own items with each other
-              if (otherItem.userId === initialItem.userId) return false;
-              
-              // Must be active status
-              if (otherItem.status !== 'active') return false;
-              
-              return true;
-          });
-          
-          console.log(`✅ Found ${potentialMatches.length} potential ${oppositeType} items`);
-          
-          // Calculate match scores and sort by relevance
-          const matchesWithScores = potentialMatches
-            .map(match => ({
+          // Format matches with IDs for consistency
+          const formattedMatches = (response.matches || []).map(match => ({
               ...match,
-              id: match._id || match.id,
-              matchScore: calculateMatchScore(initialItem, match)
-            }))
-            .filter(match => match.matchScore >= 30) // Only show matches with score >= 30%
-            .sort((a, b) => b.matchScore - a.matchScore);
+              id: match._id || match.id
+          }));
           
-          console.log(`🎯 Final matches with scores:`, matchesWithScores.map(m => ({
+          console.log(`🎯 Final matches:`, formattedMatches.map(m => ({
             name: m.itemName,
-            score: m.matchScore
+            score: m.matchScore || 0
           })));
           
-          setMatches(matchesWithScores);
+          setMatches(formattedMatches);
           
       } catch (err) {
           console.error("❌ Error retrieving matches:", err);
@@ -186,7 +107,7 @@ const Matches = ({ user }) => {
       } finally {
           setLoading(false);
       }
-  }, [initialItem, isAdmin, navigateBack]);
+  }, [initialItem, navigateBack]);
   
   useEffect(() => {
     fetchMatches();

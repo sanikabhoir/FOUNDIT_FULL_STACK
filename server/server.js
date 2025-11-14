@@ -44,7 +44,7 @@ app.use((err, req, res, next) => {
     res.status(500).json({ message: err.message || 'An unknown server error occurred.' });
 });
 
-// --- Server Start ---
+// --- Server Start --
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

@@ -76,7 +76,7 @@ const ReportLost = ({ user }) => {
     initializeData();
   }, [user]);
   
-  // Logic to handle image upload and AI analysis
+  // ⭐⭐⭐ ENHANCED: Logic to handle image upload and AI analysis (matching ReportFound)
   const handleImageChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -95,42 +95,65 @@ const ReportLost = ({ user }) => {
     
     setAiAnalyzing(true);
     try {
-      let aiResult = await generateDescriptionFromImage(file);
+      console.log('🚀 Starting AI image analysis...');
       
+      // ⭐⭐⭐ CRITICAL FIX: Pass apiDb as second parameter (matching ReportFound)
+      let aiResult = await generateDescriptionFromImage(file, apiDb);
+      
+      console.log('✅ AI Result received:', aiResult);
+      
+      // If backend failed, try basic description
       if (!aiResult.success) {
-        aiResult = await generateBasicDescription(file);
+        console.log('⚠️ Backend failed, trying basic description...');
+        aiResult = generateBasicDescription(file);
       }
       
       setAiDescription(aiResult);
       setShowAiSuggestion(true);
       
-      if (aiResult.success) {
+      if (aiResult.success !== false) {
         alert(
           '🤖 AI Analysis Complete!\n\n' +
           'The AI has analyzed your image and generated a detailed description.\n\n' +
           'Click "Use AI Description" to auto-fill the form!'
         );
+      } else {
+        alert(
+          '⚠️ AI Analysis Complete (Limited)\n\n' +
+          'Basic analysis completed. Colors detected, but full AI was unavailable.\n\n' +
+          'Click "Use AI Description" to see what was detected, then add more details manually.'
+        );
       }
       
     } catch (error) {
       console.error('❌ AI Analysis Error:', error);
+      alert('⚠️ AI analysis encountered an error. Please describe the item manually.');
     } finally {
       setAiAnalyzing(false);
     }
   };
   
   const applyAiDescription = () => {
-    if (!aiDescription || !aiDescription.success) return;
+    if (!aiDescription) {
+      console.log('⚠️ No AI description available');
+      return;
+    }
     
     const autoFilled = autoFillFormFromDescription(aiDescription);
     if (autoFilled) {
+      console.log('📝 Auto-filling form with:', autoFilled);
       setFormData({
         ...formData,
         itemName: autoFilled.itemName,
         description: autoFilled.description
       });
       setShowAiSuggestion(false);
-      alert('✅ Form auto-filled with AI description! You can edit it if needed.');
+      
+      if (aiDescription.success !== false) {
+        alert('✅ Form auto-filled with AI description! You can edit it if needed.');
+      } else {
+        alert('✅ Form filled with detected details. Please review and add more information.');
+      }
     }
   };
   
@@ -453,7 +476,7 @@ const ReportLost = ({ user }) => {
             )}
           </motion.div>
 
-          {/* AI Analysis Section */}
+          {/* AI Analysis Section - ENHANCED TO MATCH ReportFound */}
           {aiAnalyzing && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -463,14 +486,14 @@ const ReportLost = ({ user }) => {
               <div className="flex items-center gap-4">
                 <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-gray-900"></div>
                 <div>
-                  <p className="text-gray-900 font-semibold">AI is analyzing your image...</p>
-                  <p className="text-gray-600 text-sm">Identifying item details from photo</p>
+                  <p className="text-gray-900 font-semibold">🤖 AI is analyzing your image...</p>
+                  <p className="text-gray-600 text-sm">Identifying item type, color, brand, and features</p>
                 </div>
               </div>
             </motion.div>
           )}
           
-          {showAiSuggestion && aiDescription && aiDescription.success && (
+          {showAiSuggestion && aiDescription && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -479,7 +502,7 @@ const ReportLost = ({ user }) => {
               <div className="flex items-start justify-between mb-4">
                 <p className="text-gray-900 font-semibold flex items-center gap-2">
                   <Sparkles className="w-5 h-5" />
-                  AI Analysis Complete
+                  {aiDescription.success !== false ? 'AI Analysis Complete' : 'Basic Analysis Complete'}
                 </p>
                 <motion.button
                   whileHover={{ scale: 1.1 }}
@@ -490,35 +513,73 @@ const ReportLost = ({ user }) => {
                 </motion.button>
               </div>
               
-              {aiDescription.structured && (
+              {/* Debug: Show raw AI response */}
+              {process.env.NODE_ENV === 'development' && (
+                <div className="bg-blue-50 p-2 rounded mb-3 text-xs">
+                  <details>
+                    <summary className="cursor-pointer font-semibold">🔍 Debug: View Raw AI Data</summary>
+                    <pre className="mt-2 overflow-auto">{JSON.stringify(aiDescription, null, 2)}</pre>
+                  </details>
+                </div>
+              )}
+              
+              {aiDescription.structured ? (
                 <div className="bg-gray-50 p-4 rounded-xl mb-4 text-sm border border-gray-200">
                   <p className="text-gray-900 font-semibold mb-3">Detected Details:</p>
                   <div className="space-y-2">
-                    {aiDescription.structured.itemType !== 'Unknown' && (
+                    {aiDescription.structured.itemType && (
                       <div className="flex justify-between text-gray-700">
                         <span className="font-medium">Type:</span>
-                        <span>{aiDescription.structured.itemType}</span>
+                        <span className="text-right">{aiDescription.structured.itemType}</span>
                       </div>
                     )}
-                    {aiDescription.structured.brand !== 'Unknown' && aiDescription.structured.brand !== 'N/A' && (
+                    {aiDescription.structured.brand && (
                       <div className="flex justify-between text-gray-700">
                         <span className="font-medium">Brand:</span>
-                        <span>{aiDescription.structured.brand}</span>
+                        <span className="text-right">{aiDescription.structured.brand}</span>
                       </div>
                     )}
-                    {aiDescription.structured.colors !== 'Unknown' && (
+                    {aiDescription.structured.colors && (
                       <div className="flex justify-between text-gray-700">
                         <span className="font-medium">Colors:</span>
-                        <span>{aiDescription.structured.colors}</span>
+                        <span className="text-right">{aiDescription.structured.colors}</span>
                       </div>
                     )}
-                    {aiDescription.structured.material !== 'Unknown' && (
+                    {aiDescription.structured.material && (
                       <div className="flex justify-between text-gray-700">
                         <span className="font-medium">Material:</span>
-                        <span>{aiDescription.structured.material}</span>
+                        <span className="text-right">{aiDescription.structured.material}</span>
+                      </div>
+                    )}
+                    {aiDescription.structured.condition && (
+                      <div className="flex justify-between text-gray-700">
+                        <span className="font-medium">Condition:</span>
+                        <span className="text-right">{aiDescription.structured.condition}</span>
+                      </div>
+                    )}
+                    {aiDescription.structured.features && (
+                      <div className="flex justify-between text-gray-700">
+                        <span className="font-medium">Features:</span>
+                        <span className="text-right max-w-[60%]">{aiDescription.structured.features}</span>
                       </div>
                     )}
                   </div>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 p-4 rounded-xl mb-4 text-sm border border-yellow-200">
+                  <p className="text-yellow-800">
+                    ⚠️ No structured data available. The AI will still generate a description for you.
+                  </p>
+                </div>
+              )}
+              
+              {/* Show natural description preview */}
+              {aiDescription.naturalDescription && (
+                <div className="bg-gray-50 p-4 rounded-xl mb-4 text-xs border border-gray-200">
+                  <p className="text-gray-700 font-semibold mb-2">📝 Generated Description Preview:</p>
+                  <p className="text-gray-600 whitespace-pre-line line-clamp-3">
+                    {aiDescription.naturalDescription}
+                  </p>
                 </div>
               )}
               
@@ -531,7 +592,9 @@ const ReportLost = ({ user }) => {
                 Use AI Description
               </motion.button>
               <p className="text-xs text-gray-600 mt-3 text-center">
-                Or write your own description below
+                {aiDescription.success !== false 
+                  ? 'Click to auto-fill the form below' 
+                  : 'Fill form with detected details (may need manual completion)'}
               </p>
             </motion.div>
           )}
@@ -564,12 +627,12 @@ const ReportLost = ({ user }) => {
             <motion.div variants={itemVariants}>
               <label className="block text-sm font-semibold text-gray-900 mb-2">
                 Detailed Description
-                {aiDescription && aiDescription.success && (
-                  <span className="text-xs text-gray-600 font-normal ml-2">(AI-assisted)</span>
+                {aiDescription && aiDescription.success !== false && (
+                  <span className="text-xs text-green-600 font-normal ml-2">(✓ AI-assisted)</span>
                 )}
               </label>
               <textarea
-                placeholder="If you have a photo, AI can generate this! Or describe: brand, model, color, unique features, etc. Note: Personal numbers will be masked for privacy."
+                placeholder="Upload a photo and AI will auto-generate this! Or describe manually: brand, model, color, unique features, etc. Note: Personal numbers will be masked for privacy."
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="w-full p-3 border border-gray-300 rounded-xl h-36 focus:ring-2 focus:ring-gray-900 focus:border-gray-900 transition resize-none"
@@ -577,7 +640,7 @@ const ReportLost = ({ user }) => {
                 disabled={!userLocation}
               />
               <p className="text-xs text-gray-600 mt-2">
-                Pro Tip: Upload a photo and let AI generate the description automatically
+                💡 Pro Tip: Upload a photo and let AI generate the description automatically
               </p>
             </motion.div>
 
@@ -622,7 +685,7 @@ const ReportLost = ({ user }) => {
                 disabled={!userLocation}
               />
               <p className="text-xs text-gray-600 mt-1">
-                Upload a photo and AI will analyze it to generate a detailed description
+                📸 Upload a photo and AI will analyze it to generate a detailed description
               </p>
               
               {imagePreview && (
@@ -645,7 +708,7 @@ const ReportLost = ({ user }) => {
                   >
                     ×
                   </motion.button>
-                  {aiDescription && aiDescription.success && (
+                  {aiDescription && aiDescription.success !== false && (
                     <div className="absolute bottom-3 left-3 bg-gray-900 text-white px-3 py-1 rounded-full text-xs font-semibold shadow-lg flex items-center gap-1">
                       <CheckCircle className="w-3 h-3" />
                       AI Analyzed
@@ -653,9 +716,21 @@ const ReportLost = ({ user }) => {
                   )}
                 </motion.div>
               )}
+              
+              {!imagePreview && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="mt-4 border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-gray-50"
+                >
+                  <div className="text-4xl mb-2">📷</div>
+                  <p className="text-gray-700 text-sm font-medium">No image uploaded yet</p>
+                  <p className="text-gray-600 text-xs mt-2">Upload a clear photo to activate AI description generator</p>
+                </motion.div>
+              )}
             </motion.div>
 
-            {/* Info Box */}
+            {/* AI Features Info */}
             <motion.div
               variants={itemVariants}
               className="bg-gray-50 border-l-4 border-gray-900 p-6 rounded-xl"
@@ -667,18 +742,22 @@ const ReportLost = ({ user }) => {
               <ul className="text-xs text-gray-700 space-y-2">
                 <li className="flex items-start gap-3">
                   <span className="font-bold text-gray-900 min-w-fit">1.</span>
-                  <span>Optional AI Analysis: Upload photo to auto-generate description</span>
+                  <span>Image Analysis: AI identifies item type, brand, color, material automatically</span>
                 </li>
                 <li className="flex items-start gap-3">
                   <span className="font-bold text-gray-900 min-w-fit">2.</span>
-                  <span>Location First: Only matches items within 50km</span>
+                  <span>Auto Description: Generates detailed description from photo (saves you time)</span>
                 </li>
                 <li className="flex items-start gap-3">
                   <span className="font-bold text-gray-900 min-w-fit">3.</span>
-                  <span>Smart Description: Understands colors, brands, and features</span>
+                  <span>Location First: Only matches items within 50km radius</span>
                 </li>
                 <li className="flex items-start gap-3">
                   <span className="font-bold text-gray-900 min-w-fit">4.</span>
+                  <span>Smart Matching: Understands colors, brands, and features for accurate results</span>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="font-bold text-gray-900 min-w-fit">5.</span>
                   <span>High Confidence Only: Shows matches above {MATCH_THRESHOLD}% similarity</span>
                 </li>
               </ul>

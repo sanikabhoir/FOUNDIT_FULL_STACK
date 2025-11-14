@@ -1,8 +1,13 @@
+// FOUNDIT_FULL_STACK/server/utils/aiService.js
+
 const fetch = require('node-fetch');
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+// Use the general Gemini API endpoint for consistency
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent';
 const MATCH_THRESHOLD = 65; 
+
+// ============ TEXT MATCHING LOGIC (EXISTING) ============
 
 const enhancedPrompt = (item1, item2) => `
 You are an intelligent AI assistant for a Lost & Found matching system. Your goal is to determine the likelihood that two items represent THE SAME PHYSICAL OBJECT.
@@ -275,4 +280,160 @@ const calculateMatchScore = async (item1, item2) => {
     return Math.round(Math.min(100, Math.max(0, finalScore)));
 };
 
-module.exports = { calculateMatchScore, MATCH_THRESHOLD };
+// ============ IMAGE ANALYSIS LOGIC (NEW/UPDATED) ============
+
+// Helper function to parse the specific structured output for image analysis
+const parseGeminiImageResponse = (text) => {
+    const extract = (label) => {
+        const regex = new RegExp(`${label}:\\s*(.+?)(?=\\n[A-Z_]+:|$)`, 'is');
+        const match = text.match(regex);
+        return match ? match[1].trim() : 'Unknown';
+    };
+    
+    const structured = {
+        itemType: extract('ITEM_TYPE'),
+        colors: extract('COLORS'),
+        brand: extract('BRAND'),
+        material: extract('MATERIAL'),
+        condition: extract('CONDITION'),
+        features: extract('DISTINCTIVE_FEATURES'),
+    };
+    
+    const descriptionMatch = text.match(/DETAILED_DESCRIPTION:\s*(.+?)(?=\n[A-Z_]+:|$)/is);
+    const naturalDescription = descriptionMatch ? descriptionMatch[1].trim() : text;
+    
+    return {
+        structured,
+        // The natural description is formatted for client-side use
+        naturalDescription: `${structured.itemType}\n\n${naturalDescription}`,
+        success: true,
+        method: 'gemini-2.0-flash',
+        fullResponse: text
+    };
+};
+
+const analyzeImageDescription = async (base64Image, mimeType) => {
+    if (!GEMINI_API_KEY) {
+        console.error("❌ GEMINI API KEY MISSING! Cannot run external AI image analysis.");
+        return { 
+            structured: { itemType: 'Error: API Key Missing', colors: 'N/A', brand: 'N/A', material: 'N/A', condition: 'N/A', features: 'N/A' },
+            naturalDescription: 'AI analysis failed: Gemini API Key is missing on the server.',
+            success: false,
+            method: 'gemini-2.0-flash'
+        };
+    }
+    
+    // The specific prompt for image analysis, UPDATED to include Water Bottle logic
+    const imageAnalysisPrompt = `You are an expert at identifying lost and found items from photos. Analyze this image PRECISELY and identify the MAIN OBJECT/ITEM in the center/foreground.
+
+IDENTIFY THE ACTUAL ITEM - NOT descriptions like "rectangular" or "has color":
+- If it's a phone: What exact model can you identify? (iPhone 15, Samsung Galaxy S24, etc. or just "Smartphone")
+- If it's a wallet: What style? (leather, fabric, slim, traditional, etc.)
+- If it's a water bottle: What size/material? (e.g., "stainless steel vacuum flask", "clear plastic sports bottle")
+- If it's jewelry: What type? (ring, necklace, bracelet, earring, etc.)
+- If it's a bag: What type? (backpack, purse, crossbody, tote, etc.)
+- For ANY item: Be specific about what it actually is
+
+STRUCTURE YOUR RESPONSE EXACTLY AS FOLLOWS - NO VARIATIONS:
+
+ITEM_TYPE: [The specific item - e.g., "Stainless steel vacuum flask", "Black leather wallet", "Apple AirPods Pro", "Silver watch"]
+
+COLORS: [List all visible colors - e.g., "Space black, silver accent", "Navy blue and gold", "Rose gold"]
+
+BRAND: [Brand name if visible - e.g., "Apple", "Samsung", "Coach", "Rolex" - or "Not visible"]
+
+MATERIAL: [What it's made of - e.g., "Aluminum and glass", "Leather", "Stainless steel", "Fabric and plastic"]
+
+CONDITION: [Current state - e.g., "Good condition", "Has minor scratches on back", "Brand new", "Visible wear"]
+
+DISTINCTIVE_FEATURES: [Any unique identifying characteristics - e.g., "Screen protector applied", "Rose gold accents", "Cracked corner", "Water damage visible", "Engravings", "Stickers", "Dent on side", "Case removed", "Protective case on it"]
+
+DETAILED_DESCRIPTION: [Write 3-4 sentences describing exactly what someone would see if holding this item. Include every visible detail: exact model if identifiable, all colors, materials, brand marks, screen condition, case condition, any damage, unique markings, or distinctive features. This should be detailed enough that the owner would immediately recognize their item.]
+
+CRITICAL RULES:
+- DO NOT describe what the image shows (background, lighting, etc.)
+- DO focus 100% on identifying the actual object
+- DO be SPECIFIC - not generic
+- DO NOT say "rectangular" or "appears to be" - identify what it IS
+- If you can identify an exact model/brand, state it clearly
+- If uncertain about exact model but know the brand, say so (e.g., "Appears to be an iPhone but cannot determine exact model")
+`;
+
+    const MAX_RETRIES = 1; // Lower retries for faster user response
+    let lastError = null;
+
+    for (let i = 0; i < MAX_RETRIES; i++) {
+        try {
+            console.log(`[Gemini Image] Attempt ${i + 1}/${MAX_RETRIES}...`);
+            
+            const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ 
+                    parts: [
+                        { text: imageAnalysisPrompt },
+                        {
+                            inline_data: {
+                                mime_type: mimeType,
+                                data: base64Image
+                            }
+                        }
+                    ]
+                }],
+                generationConfig: { 
+                  temperature: 0.2, // SLIGHTLY INCREASED to encourage a wider object range
+                  maxOutputTokens: 1024,
+                  topP: 0.5,
+                  topK: 10
+                }
+              })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: response.statusText }));
+                console.error(`❌ GEMINI API HTTP Error ${response.status}:`, JSON.stringify(errorData, null, 2));
+                throw new Error(`Gemini API HTTP Error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            
+            if (!resultText) {
+                console.error('❌ No text content in Gemini image response');
+                throw new Error("No text content in Gemini response.");
+            }
+            
+            console.log('[Gemini Image] Raw Text:', resultText);
+            return parseGeminiImageResponse(resultText);
+
+        } catch (error) {
+            lastError = error;
+            console.error(`[Gemini Image] ❌ Attempt ${i + 1} failed:`, error.message);
+            
+            if (i < MAX_RETRIES - 1) {
+                const delay = 1000 * (i + 1);
+                console.log(`[Gemini Image] Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    
+    console.error('❌ [Gemini Image] All attempts failed. Last error:', lastError?.message);
+    // Fallback response structure matching the client-side fallbacks
+    return {
+        structured: {
+            itemType: 'Unable to identify',
+            colors: 'See image',
+            brand: 'Unknown',
+            material: 'Unknown',
+            condition: 'Unknown',
+            features: 'N/A'
+        },
+        naturalDescription: `Image uploaded. Please describe: What is this item? (phone, wallet, bag, jewelry, etc.) What colors? Any brand visible? What material? Any damage or unique features? Error: ${lastError?.message || 'Unknown server error'}`,
+        success: false,
+        method: 'fallback'
+    };
+};
+
+module.exports = { calculateMatchScore, MATCH_THRESHOLD, analyzeImageDescription };

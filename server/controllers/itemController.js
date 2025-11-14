@@ -1,6 +1,8 @@
+// server/controllers/itemController.js
+
 const Item = require('../models/Item');
 const Chat = require('../models/Chat');
-const { calculateMatchScore, MATCH_THRESHOLD } = require('../utils/aiService');
+const { calculateMatchScore, MATCH_THRESHOLD, analyzeImageDescription } = require('../utils/aiService');
 
 // --- Helper: Run AI Match (Centralized Server Logic) ---
 const runAIAssistedMatch = async (newItem) => {
@@ -116,7 +118,10 @@ const getAllItems = async (req, res) => {
     } catch (error) {
         res.status(500).json({ message: 'Server error fetching all items' });
     }
-}
+};
+
+// @desc    Get public items (not user's own)
+// @route   GET /api/items/public
 const getPublicItems = async (req, res) => {
     try {
         const items = await Item.find({
@@ -131,4 +136,100 @@ const getPublicItems = async (req, res) => {
     }
 };
 
-module.exports = { createItem, getMyItems, deleteItem, getAllItems, runAIAssistedMatch,getPublicItems };
+// @desc    Analyze image with AI
+// @route   POST /api/items/analyze-image
+const analyzeImage = async (req, res) => {
+    try {
+        console.log('📸 ========== IMAGE ANALYSIS REQUEST START ==========');
+        console.log('📅 Timestamp:', new Date().toISOString());
+        console.log('👤 User:', req.user?.email || 'Unknown');
+        
+        const { base64Image, mimeType } = req.body;
+        
+        if (!base64Image || !mimeType) {
+            console.error('❌ Missing required fields');
+            console.error('- base64Image present:', !!base64Image);
+            console.error('- mimeType present:', !!mimeType);
+            
+            return res.status(400).json({ 
+                message: 'Image data is required for analysis.',
+                success: false,
+                structured: {
+                    itemType: 'Error: Missing Data',
+                    colors: 'N/A',
+                    brand: 'N/A',
+                    material: 'N/A',
+                    condition: 'N/A',
+                    features: 'N/A'
+                },
+                naturalDescription: 'Missing image data. Please try uploading again.'
+            });
+        }
+        
+        console.log('📁 MIME type:', mimeType);
+        console.log('📏 Base64 length:', base64Image.length);
+        console.log('🔑 GEMINI_API_KEY present:', !!process.env.GEMINI_API_KEY);
+        
+        if (!process.env.GEMINI_API_KEY) {
+            console.error('❌ CRITICAL: GEMINI_API_KEY is not set in environment variables!');
+            return res.status(500).json({
+                message: 'AI service not configured. Please contact administrator.',
+                success: false,
+                structured: {
+                    itemType: 'Error: API Key Missing',
+                    colors: 'See image',
+                    brand: 'Unknown',
+                    material: 'Unknown',
+                    condition: 'Unknown',
+                    features: 'N/A'
+                },
+                naturalDescription: 'AI service is not configured on the server. Please describe the item manually.'
+            });
+        }
+        
+        console.log('🤖 Calling analyzeImageDescription...');
+        
+        // Call the AI service to analyze the image
+        const aiAnalysis = await analyzeImageDescription(base64Image, mimeType);
+
+        console.log('✅ AI Analysis complete!');
+        console.log('📊 Analysis method:', aiAnalysis.method);
+        console.log('✅ Analysis success:', aiAnalysis.success);
+        console.log('📝 Item type detected:', aiAnalysis.structured?.itemType);
+        console.log('📸 ========== IMAGE ANALYSIS REQUEST END ==========\n');
+        
+        // Return the structured description for client-side use
+        res.json(aiAnalysis);
+
+    } catch (error) {
+        console.error('❌ ========== IMAGE ANALYSIS ERROR ==========');
+        console.error('❌ Error message:', error.message);
+        console.error('❌ Error stack:', error.stack);
+        console.error('❌ ========================================\n');
+        
+        res.status(500).json({ 
+            message: 'Error running AI analysis on the image',
+            success: false,
+            error: error.message,
+            structured: {
+                itemType: 'Analysis Failed',
+                colors: 'See image',
+                brand: 'Unknown',
+                material: 'Unknown',
+                condition: 'Unknown',
+                features: 'N/A'
+            },
+            naturalDescription: `AI analysis encountered an error: ${error.message}\n\nPlease describe the item manually:\n• What type of item is this?\n• What colors do you see?\n• Any brand or model visible?\n• Material type?\n• Any unique features or damage?`
+        });
+    }
+};
+
+module.exports = { 
+    createItem, 
+    getMyItems, 
+    deleteItem, 
+    getAllItems, 
+    runAIAssistedMatch,
+    getPublicItems,
+    analyzeImage 
+};

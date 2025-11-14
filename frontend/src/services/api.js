@@ -1,6 +1,9 @@
-// src/services/api.js
+// frontend/src/services/api.js
 
-const API_URL = 'https://foundit-full-stack.onrender.com';
+// Update this to your backend URL - use localhost for development
+const API_URL = process.env.NODE_ENV === 'production' 
+    ? 'https://foundit-full-stack.onrender.com' 
+    : 'http://localhost:5001';
 
 // --- Helper to get the auth token from localStorage ---
 const getToken = () => localStorage.getItem('userToken');
@@ -124,6 +127,12 @@ const apiDb = {
 
     deleteItem: (itemId) => authFetch(`/api/items/${itemId}`, { 
         method: 'DELETE' 
+    }),
+
+    // ⭐ NEW: Image Analysis
+    analyzeImage: (imageData) => authFetch('/api/items/analyze-image', {
+        method: 'POST',
+        body: JSON.stringify(imageData)
     }),
 
     // Admin Operations

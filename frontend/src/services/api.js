@@ -1,9 +1,7 @@
 // frontend/src/services/api.js
 
 // Update this to your backend URL - use localhost for development
-const API_URL = process.env.NODE_ENV === 'production' 
-    ? 'https://foundit-full-stack.onrender.com' 
-    : 'http://localhost:5001';
+const API_URL = 'https://foundit-full-stack.onrender.com';
 
 // --- Helper to get the auth token from localStorage ---
 const getToken = () => localStorage.getItem('userToken');

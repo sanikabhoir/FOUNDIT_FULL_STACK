@@ -29,33 +29,70 @@ const authFetch = async (endpoint, options = {}) => {
                 headers,
             });
 
-            // Try to parse the response body, even if an error status
+            // Try to parse the response body. 
+            // Handle cases where the body might be empty or not JSON, especially on error status.
+            let data = {};
             const contentType = response.headers.get("content-type");
-            const data = contentType && contentType.includes("application/json") 
-                ? await response.json() 
-                : { message: response.statusText || `Request failed with status ${response.status}` };
+            
+            if (contentType && contentType.includes("application/json")) {
+                try {
+                    data = await response.json();
+                } catch (e) {
+                    // JSON parsing failed, treat as generic error
+                    data.message = "Failed to parse JSON response.";
+                }
+            } else {
+                // Not JSON (e.g., a simple text error or empty response)
+                data.message = response.statusText || `Request failed with status ${response.status}`;
+            }
+
 
             if (!response.ok) {
-                // If it's a 401/403 and not the final retry, throw error to trigger retry.
-                // If it's a non-retryable error (e.g., 400, 404), break loop or just let it fail.
+                // If response is not OK, throw the error with the message from the data body
                 throw new Error(data.message || `API Error: ${response.status}`);
             }
-            return data;
+            
+            // Success response
+            return data; 
+
         } catch (error) {
             lastError = error;
             if (i < MAX_RETRIES - 1) {
                 const delay = Math.pow(2, i) * 1000; // 1s, 2s, 4s...
                 await new Promise(resolve => setTimeout(resolve, delay));
+            } else if (i === MAX_RETRIES - 1) {
+                // On the last failure, log the raw error before throwing
+                console.error('Final authFetch failed:', error);
             }
         }
     }
 
     // After all retries fail
-    throw new Error(lastError.message || 'Request failed after multiple retries.');
+    throw new Error(lastError?.message || 'Request failed after multiple retries.');
 };
 
 // --- AUTH SERVICE (Replaces Firebase Auth) ---
 const apiAuth = {
+    // NEW: Send OTP for registration
+    sendOTP: async (email, name) => {
+        // This line is correct, it relies on authFetch returning the data object.
+        const result = await authFetch('/api/auth/send-otp', {
+            method: 'POST',
+            body: JSON.stringify({ email, name })
+        });
+        return result;
+    },
+
+    // NEW: Verify OTP and complete registration
+    verifyOTP: async (email, otp, password) => {
+        const result = await authFetch('/api/auth/verify-otp', {
+            method: 'POST',
+            body: JSON.stringify({ email, otp, password })
+        });
+        localStorage.setItem('userToken', result.token);
+        return result;
+    },
+
     login: async (email, password) => {
         const result = await authFetch('/api/auth/login', {
             method: 'POST',

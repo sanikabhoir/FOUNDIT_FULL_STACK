@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { apiDb } from '../services/api';
 import { deleteImageFromLocal } from '../utils/imageStorage';
 import ItemCard from '../components/ItemCard';
-import { Shield, Users, Package, TrendingUp, LogOut, FileText, Trash2, Eye, ArrowLeft, Loader2, Clock } from 'lucide-react';
+import { Shield, Users, Package, TrendingUp, LogOut, FileText, Trash2, Eye, ArrowLeft, Loader2, Clock, Download, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import jsPDF from 'jspdf';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -12,43 +13,39 @@ const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ users: 0, lost: 0, found: 0, matched: 0 });
-  const POLLING_INTERVAL = 15000; // Poll data every 15 seconds
+  const [stats, setStats] = useState({ users: 0, lost: 0, found: 0, matched: 0, returned: 0 });
+  const POLLING_INTERVAL = 15000;
 
   const fetchData = useCallback(async () => {
     try {
-      // 1. Fetch Users
       const usersResponse = await apiDb.getAllUsers();
-      
-      // 2. Fetch Items
       const itemsResponse = await apiDb.getAllItems();
       
       const usersData = usersResponse.map(u => ({ id: u._id, ...u }));
       const itemsData = itemsResponse.map(i => ({ id: i._id, ...i }));
 
-      // Sort items by creation date (latest first)
       itemsData.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       usersData.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       
       setUsers(usersData);
       setItems(itemsData);
       
-      // 3. Calculate Stats
-      const lostCount = itemsData.filter(i => i.type === 'lost').length;
-      const foundCount = itemsData.filter(i => i.type === 'found').length;
-      const matchedCount = itemsData.filter(i => (i.matchCount || 0) > 0).length;
+      const lostCount = itemsData.filter(i => i.type === 'lost' && i.status !== 'returned').length;
+      const foundCount = itemsData.filter(i => i.type === 'found' && i.status !== 'returned').length;
+      const matchedCount = itemsData.filter(i => (i.matchCount || 0) > 0 && i.status !== 'returned').length;
+      const returnedCount = itemsData.filter(i => i.status === 'returned').length;
       
       setStats({
         users: usersData.length,
         lost: lostCount,
         found: foundCount,
-        matched: matchedCount
+        matched: matchedCount,
+        returned: returnedCount
       });
       
     } catch (error) {
-      console.error('❌ Error fetching admin data:', error);
+      console.error('Error fetching admin data:', error);
       if (error.message.includes('401') || error.message.includes('403')) {
-          // Unauthorized, clear session and redirect to login
           localStorage.removeItem('adminSession');
           localStorage.removeItem('userToken');
           navigate('/admin-login');
@@ -61,40 +58,26 @@ const AdminDashboard = () => {
   useEffect(() => {
     setLoading(true);
     fetchData(); 
-    
-    // Set up polling to keep admin view fresh
     const interval = setInterval(fetchData, POLLING_INTERVAL);
-
-    return () => {
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, [fetchData]);
 
-  
   const handleViewMatches = (item) => {
-    // Always pass matches as an empty array - the Matches component will handle fetching if needed
     navigate('/matches', { state: { item, matches: [] } });
   };
   
   const deleteUser = async (userId, userEmail) => {
     if (window.confirm(`Are you sure you want to delete user ${userEmail}? This will also delete all their associated items and chats.`)) {
       try {
-        console.log('🗑️ Deleting user:', userId);
-        
-        // 1. Delete user via API (Server handles associated item/chat cleanup)
-        await apiDb.deleteItem(userId); // The endpoint is reused for simplicity in the backend
-
-        // 2. Clear user's locally stored images (for any items this admin might have reported)
+        await apiDb.deleteItem(userId);
         const userItems = items.filter(i => i.userId === userId);
         userItems.forEach(item => {
             if (item.imageId) deleteImageFromLocal(item.imageId);
         });
-        
-        alert(`✅ User ${userEmail} and all related data deleted successfully.`);
-        fetchData(); // Refresh data
-
+        alert(`User ${userEmail} and all related data deleted successfully.`);
+        fetchData();
       } catch (err) {
-        console.error('❌ Error deleting user:', err);
+        console.error('Error deleting user:', err);
         alert('Error deleting user: ' + (err.message || 'Network Error'));
       }
     }
@@ -106,16 +89,164 @@ const AdminDashboard = () => {
         if (item.imageId) {
           deleteImageFromLocal(item.imageId);
         }
-        
-        // Use the general item deletion endpoint
         await apiDb.deleteItem(item.id); 
-        
-        alert('✅ Item deleted successfully');
-        fetchData(); // Refresh data
+        alert('Item deleted successfully');
+        fetchData();
       } catch (err) {
-        console.error('❌ Error deleting item:', err);
+        console.error('Error deleting item:', err);
         alert('Error deleting item: ' + (err.message || 'Network Error'));
       }
+    }
+  };
+
+  const downloadPlatformReport = () => {
+    try {
+      const doc = new jsPDF();
+      const activeItems = items.filter(i => i.status !== 'returned');
+      const returnedItems = items.filter(i => i.status === 'returned');
+      const successRate = items.length > 0 ? ((returnedItems.length / items.length) * 100).toFixed(2) : 0;
+      const avgMatches = items.length > 0 ? (items.reduce((sum, item) => sum + (item.matchCount || 0), 0) / items.length).toFixed(2) : 0;
+
+      let yPos = 20;
+      
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text('FOUNDIT PLATFORM REPORT', 105, yPos, { align: 'center' });
+      
+      yPos += 10;
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Generated: ${new Date().toLocaleString()}`, 105, yPos, { align: 'center' });
+      
+      yPos += 15;
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PLATFORM STATISTICS', 20, yPos);
+      
+      yPos += 8;
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Total Users: ${stats.users}`, 20, yPos);
+      yPos += 6;
+      doc.text(`Total Items: ${items.length}`, 20, yPos);
+      yPos += 6;
+      doc.text(`Active Items: ${activeItems.length}`, 20, yPos);
+      yPos += 6;
+      doc.text(`Lost Items: ${stats.lost}`, 20, yPos);
+      yPos += 6;
+      doc.text(`Found Items: ${stats.found}`, 20, yPos);
+      yPos += 6;
+      doc.text(`Items with Matches: ${stats.matched}`, 20, yPos);
+      yPos += 6;
+      doc.text(`Returned Items: ${stats.returned}`, 20, yPos);
+      yPos += 6;
+      doc.text(`Success Rate: ${successRate}%`, 20, yPos);
+      yPos += 6;
+      doc.text(`Average Matches per Item: ${avgMatches}`, 20, yPos);
+      
+      yPos += 12;
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('USER ANALYTICS', 20, yPos);
+      
+      yPos += 8;
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Active Users: ${users.filter(u => !u.banned).length}`, 20, yPos);
+      yPos += 6;
+      doc.text(`Banned Users: ${users.filter(u => u.banned).length}`, 20, yPos);
+      
+      yPos += 12;
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TOP 10 USERS BY ACTIVITY', 20, yPos);
+      
+      yPos += 8;
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      
+      const topUsers = users
+        .map(user => ({
+          ...user,
+          itemCount: items.filter(i => i.userId === user.id).length
+        }))
+        .sort((a, b) => b.itemCount - a.itemCount)
+        .slice(0, 10);
+      
+      topUsers.forEach((user, idx) => {
+        if (yPos > 270) {
+          doc.addPage();
+          yPos = 20;
+        }
+        doc.text(`${idx + 1}. ${user.email} - ${user.itemCount} items`, 20, yPos);
+        yPos += 5;
+      });
+      
+      if (yPos > 250) {
+        doc.addPage();
+        yPos = 20;
+      }
+      
+      yPos += 10;
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ACTIVE ITEMS', 20, yPos);
+      
+      yPos += 8;
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      
+      if (activeItems.length === 0) {
+        doc.text('No active items.', 20, yPos);
+      } else {
+        activeItems.slice(0, 20).forEach((item, idx) => {
+          if (yPos > 270) {
+            doc.addPage();
+            yPos = 20;
+          }
+          doc.text(`${idx + 1}. ${item.itemName} (${item.type.toUpperCase()})`, 20, yPos);
+          yPos += 5;
+          doc.text(`   Location: ${item.locationShort || item.location}`, 20, yPos);
+          yPos += 5;
+          doc.text(`   By: ${item.userName || item.userEmail} | Matches: ${item.matchCount || 0}`, 20, yPos);
+          yPos += 7;
+        });
+      }
+      
+      if (returnedItems.length > 0) {
+        if (yPos > 250) {
+          doc.addPage();
+          yPos = 20;
+        }
+        
+        yPos += 10;
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('RETURNED ITEMS', 20, yPos);
+        
+        yPos += 8;
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        
+        returnedItems.slice(0, 20).forEach((item, idx) => {
+          if (yPos > 270) {
+            doc.addPage();
+            yPos = 20;
+          }
+          doc.text(`${idx + 1}. ${item.itemName} (${item.type.toUpperCase()})`, 20, yPos);
+          yPos += 5;
+          doc.text(`   By: ${item.userName || item.userEmail}`, 20, yPos);
+          yPos += 5;
+          doc.text(`   Returned: ${item.returnedAt ? new Date(item.returnedAt).toLocaleDateString() : 'N/A'}`, 20, yPos);
+          yPos += 7;
+        });
+      }
+      
+      doc.save(`FoundIT_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+      alert('Platform report downloaded successfully!');
+    } catch (error) {
+      console.error('Error generating report:', error);
+      alert('Error generating report. Please try again.');
     }
   };
   
@@ -156,11 +287,12 @@ const AdminDashboard = () => {
     );
   }
   
-  const reportedFoundItems = items.filter(i => i.type === 'found');
+  const reportedFoundItems = items.filter(i => i.type === 'found' && i.status !== 'returned');
+  const returnedItems = items.filter(i => i.status === 'returned');
+  const activeItems = items.filter(i => i.status !== 'returned');
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <motion.nav
         initial={{ y: -50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -185,6 +317,15 @@ const AdminDashboard = () => {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
+                onClick={downloadPlatformReport}
+                className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-lg hover:bg-blue-700 transition font-medium"
+              >
+                <Download className="w-4 h-4" />
+                Download Report
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 onClick={() => navigate('/admin-reports')}
                 className="flex items-center gap-2 bg-teal-600 text-white px-5 py-2.5 rounded-lg hover:bg-teal-700 transition font-medium"
               >
@@ -206,26 +347,26 @@ const AdminDashboard = () => {
       </motion.nav>
       
       <div className="max-w-7xl mx-auto p-6">
-        {/* Tabs */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
           className="bg-white rounded-xl shadow-sm mb-6 overflow-hidden"
         >
-          <div className="flex border-b border-gray-200">
+          <div className="flex border-b border-gray-200 overflow-x-auto">
             {[
               { id: 'stats', icon: TrendingUp, label: 'Statistics', count: null },
-              { id: 'items', icon: Package, label: 'All Items', count: items.length },
+              { id: 'items', icon: Package, label: 'Active Items', count: activeItems.length },
+              { id: 'returned', icon: CheckCircle, label: 'Returned', count: stats.returned },
               { id: 'users', icon: Users, label: 'Users', count: stats.users },
-              { id: 'found', icon: Eye, label: 'Report Found Item', count: stats.found }
+              { id: 'found', icon: Eye, label: 'Report Found', count: stats.found }
             ].map((tab) => (
               <motion.button
                 key={tab.id}
                 whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 py-4 font-semibold transition-all flex items-center justify-center gap-2 ${
+                className={`flex-1 py-4 font-semibold transition-all flex items-center justify-center gap-2 whitespace-nowrap px-4 ${
                   activeTab === tab.id 
                     ? 'bg-teal-600 text-white' 
                     : 'text-gray-600 hover:bg-gray-50'
@@ -255,13 +396,14 @@ const AdminDashboard = () => {
                     variants={containerVariants}
                     initial="hidden"
                     animate="visible"
-                    className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8"
+                    className="grid md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8"
                   >
                     {[
                       { icon: Users, label: 'Total Users', value: stats.users, color: 'bg-blue-600', bgLight: 'bg-blue-50' },
                       { icon: Package, label: 'Lost Items', value: stats.lost, color: 'bg-red-600', bgLight: 'bg-red-50' },
                       { icon: Package, label: 'Found Items', value: stats.found, color: 'bg-green-600', bgLight: 'bg-green-50' },
-                      { icon: TrendingUp, label: 'Items with Matches', value: stats.matched, color: 'bg-teal-600', bgLight: 'bg-teal-50' }
+                      { icon: TrendingUp, label: 'With Matches', value: stats.matched, color: 'bg-teal-600', bgLight: 'bg-teal-50' },
+                      { icon: CheckCircle, label: 'Returned', value: stats.returned, color: 'bg-purple-600', bgLight: 'bg-purple-50' }
                     ].map((stat, idx) => (
                       <motion.div
                         key={idx}
@@ -285,13 +427,13 @@ const AdminDashboard = () => {
                     className="bg-white border border-gray-200 p-6 rounded-xl"
                   >
                     <h3 className="text-xl font-bold mb-4 text-gray-900 flex items-center gap-2">
-                      📋 Recent Activity
+                      Recent Activity
                     </h3>
-                    {items.length === 0 ? (
-                      <p className="text-gray-500 text-center py-8">No activity yet</p>
+                    {activeItems.length === 0 ? (
+                      <p className="text-gray-500 text-center py-8">No active items</p>
                     ) : (
                       <div className="space-y-3">
-                        {items.slice(0, 10).map(item => (
+                        {activeItems.slice(0, 10).map(item => (
                           <motion.div
                             key={item.id}
                             whileHover={{ x: 5 }}
@@ -300,10 +442,10 @@ const AdminDashboard = () => {
                             <div>
                               <p className="font-semibold text-gray-900">{item.itemName}</p>
                               <p className="text-sm text-gray-600">
-                                {item.type === 'lost' ? '🔴 Lost' : '🟢 Found'} by {item.userName || item.userEmail} 
+                                {item.type === 'lost' ? 'Lost' : 'Found'} by {item.userName || item.userEmail} 
                                 {item.matchCount > 0 && (
                                   <span className="ml-2 text-teal-600 font-medium">
-                                    • {item.matchCount} match{item.matchCount !== 1 ? 'es' : ''}
+                                    {item.matchCount} matches
                                   </span>
                                 )}
                               </p>
@@ -330,12 +472,12 @@ const AdminDashboard = () => {
                 >
                   <h2 className="text-2xl font-bold mb-6 text-gray-900 flex items-center gap-2">
                     <Package className="w-7 h-7 text-teal-600" />
-                    All Reported Items ({items.length})
+                    Active Items ({activeItems.length})
                   </h2>
-                  {items.length === 0 ? (
+                  {activeItems.length === 0 ? (
                     <div className="text-center py-16">
                       <div className="text-6xl mb-4">📦</div>
-                      <p className="text-gray-500 text-lg">No items reported yet.</p>
+                      <p className="text-gray-500 text-lg">No active items.</p>
                     </div>
                   ) : (
                     <motion.div
@@ -344,7 +486,7 @@ const AdminDashboard = () => {
                       animate="visible"
                       className="grid md:grid-cols-2 lg:grid-cols-3 gap-6"
                     >
-                      {items.map(item => (
+                      {activeItems.map(item => (
                         <motion.div
                           key={item.id}
                           variants={itemVariants}
@@ -355,7 +497,7 @@ const AdminDashboard = () => {
                           <div className="mt-3 space-y-2">
                             <div className="bg-teal-50 border border-teal-200 p-3 rounded-lg">
                               <p className="text-sm font-semibold text-teal-900 flex justify-between items-center">
-                                🎯 AI Matches: <span className="text-lg">{item.matchCount || 0}</span>
+                                AI Matches: <span className="text-lg">{item.matchCount || 0}</span>
                               </p>
                               <p className="text-xs text-teal-600 mt-1 flex items-center gap-1">
                                 <Clock className="w-3 h-3"/>
@@ -370,6 +512,71 @@ const AdminDashboard = () => {
                             >
                               <Trash2 className="w-4 h-4" />
                               Delete Item
+                            </motion.button>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  )}
+                </motion.div>
+              )}
+
+              {activeTab === 'returned' && (
+                <motion.div
+                  key="returned"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                >
+                  <h2 className="text-2xl font-bold mb-6 text-gray-900 flex items-center gap-2">
+                    <CheckCircle className="w-7 h-7 text-purple-600" />
+                    Successfully Returned Items ({returnedItems.length})
+                  </h2>
+                  
+                  {returnedItems.length === 0 ? (
+                    <div className="text-center py-16">
+                      <div className="text-6xl mb-4">✅</div>
+                      <p className="text-gray-500 text-lg">No items have been returned yet.</p>
+                      <p className="text-sm text-gray-400 mt-2">Items marked as returned by both parties will appear here.</p>
+                    </div>
+                  ) : (
+                    <motion.div
+                      variants={containerVariants}
+                      initial="hidden"
+                      animate="visible"
+                      className="grid md:grid-cols-2 lg:grid-cols-3 gap-6"
+                    >
+                      {returnedItems.map(item => (
+                        <motion.div
+                          key={item.id}
+                          variants={itemVariants}
+                          whileHover={{ y: -5 }}
+                          className="relative"
+                        >
+                          <ItemCard item={item} />
+                          <div className="mt-3 space-y-2">
+                            <div className="bg-purple-50 border border-purple-200 p-3 rounded-lg">
+                              <p className="text-sm font-semibold text-purple-900 flex items-center gap-2">
+                                <CheckCircle className="w-4 h-4"/>
+                                Successfully Returned
+                              </p>
+                              <p className="text-xs text-purple-600 mt-1">
+                                Final Matches: {item.matchCount || 0}
+                              </p>
+                              {item.returnedAt && (
+                                <p className="text-xs text-purple-600 mt-1">
+                                  Returned: {new Date(item.returnedAt).toLocaleDateString()}
+                                </p>
+                              )}
+                            </div>
+                            <motion.button
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => deleteItem(item)}
+                              className="w-full flex items-center justify-center gap-2 bg-red-50 text-red-600 py-2.5 rounded-lg hover:bg-red-100 transition font-medium"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete Record
                             </motion.button>
                           </div>
                         </motion.div>
@@ -455,7 +662,6 @@ const AdminDashboard = () => {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
                 >
-                  {/* Report Found Item Button */}
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -473,7 +679,6 @@ const AdminDashboard = () => {
                     </motion.button>
                   </motion.div>
 
-                  {/* Reported Found Items Section */}
                   <h2 className="text-2xl font-bold mb-6 text-gray-900 flex items-center gap-2">
                     <Package className="w-7 h-7 text-teal-600" />
                     Reported Found Items ({reportedFoundItems.length})
@@ -492,52 +697,48 @@ const AdminDashboard = () => {
                       className="grid md:grid-cols-2 lg:grid-cols-3 gap-6"
                     >
                       {reportedFoundItems.map(item => (
-                          <motion.div
-                            key={item.id}
-                            variants={itemVariants}
-                            whileHover={{ y: -5 }}
-                            className="relative"
-                          >
-                            <ItemCard item={item} />
-                            <div className="mt-3 space-y-2">
-                              {/* Match Info Card */}
-                              <div className="bg-green-50 border border-green-200 p-3 rounded-lg">
-                                <p className="text-sm font-semibold text-green-900">
-                                  🟢 Found Item • {item.matchCount || 0} Match{(item.matchCount || 0) !== 1 ? 'es' : ''}
-                                </p>
-                                <p className="text-xs text-green-600 mt-1">
-                                  By: {item.userName || item.userEmail || 'Admin'}
-                                </p>
-                              </div>
-                              
-                              {/* Action Buttons */}
-                              <div className="flex gap-2">
-                                {/* View Matches Button */}
-                                <motion.button
-                                  whileHover={{ scale: 1.02 }}
-                                  whileTap={{ scale: 0.98 }}
-                                  onClick={() => handleViewMatches(item)}
-                                  className="flex-1 flex items-center justify-center gap-2 bg-teal-50 text-teal-700 py-2.5 rounded-lg hover:bg-teal-100 transition font-medium"
-                                  title="View matches and chat"
-                                >
-                                  <Eye className="w-4 h-4" />
-                                  View Details
-                                </motion.button>
-                                
-                                {/* Delete Button */}
-                                <motion.button
-                                  whileHover={{ scale: 1.02 }}
-                                  whileTap={{ scale: 0.98 }}
-                                  onClick={() => deleteItem(item)}
-                                  className="flex items-center justify-center gap-2 bg-red-50 text-red-600 px-4 py-2.5 rounded-lg hover:bg-red-100 transition font-medium"
-                                  title="Delete item"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </motion.button>
-                              </div>
+                        <motion.div
+                          key={item.id}
+                          variants={itemVariants}
+                          whileHover={{ y: -5 }}
+                          className="relative"
+                        >
+                          <ItemCard item={item} />
+                          <div className="mt-3 space-y-2">
+                            <div className="bg-green-50 border border-green-200 p-3 rounded-lg">
+                              <p className="text-sm font-semibold text-green-900">
+                                Found Item • {item.matchCount || 0} Match{(item.matchCount || 0) !== 1 ? 'es' : ''}
+                              </p>
+                              <p className="text-xs text-green-600 mt-1">
+                                By: {item.userName || item.userEmail || 'Admin'}
+                              </p>
                             </div>
-                          </motion.div>
-                        ))}
+                            
+                            <div className="flex gap-2">
+                              <motion.button
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => handleViewMatches(item)}
+                                className="flex-1 flex items-center justify-center gap-2 bg-teal-50 text-teal-700 py-2.5 rounded-lg hover:bg-teal-100 transition font-medium"
+                                title="View matches and chat"
+                              >
+                                <Eye className="w-4 h-4" />
+                                View Details
+                              </motion.button>
+                              
+                              <motion.button
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => deleteItem(item)}
+                                className="flex items-center justify-center gap-2 bg-red-50 text-red-600 px-4 py-2.5 rounded-lg hover:bg-red-100 transition font-medium"
+                                title="Delete item"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </motion.button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
                     </motion.div>
                   )}
                 </motion.div>

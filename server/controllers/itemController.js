@@ -1,10 +1,32 @@
-// server/controllers/itemController.js
-
 const Item = require('../models/Item');
 const Chat = require('../models/Chat');
 const { calculateMatchScore, MATCH_THRESHOLD, analyzeImageDescription } = require('../utils/aiService');
 
-// --- Helper: Run AI Match (Centralized Server Logic) ---
+// --- Helper: Run AI Match WITHOUT updating counts (for viewing matches) ---
+const findMatches = async (item) => {
+    const oppositeType = item.type === 'lost' ? 'found' : 'lost';
+    
+    const candidateItems = await Item.find({ 
+        type: oppositeType, 
+        status: { $in: ['active', 'claimed'] },
+        userId: { $ne: item.userId }
+    }).lean(); 
+    
+    const potentialMatches = [];
+    
+    for (const otherItem of candidateItems) {
+        const matchScore = await calculateMatchScore(item, otherItem);
+        
+        if (matchScore >= MATCH_THRESHOLD) {
+            potentialMatches.push({ ...otherItem, matchScore });
+        }
+    }
+    
+    potentialMatches.sort((a, b) => b.matchScore - a.matchScore);
+    return potentialMatches;
+};
+
+// --- Helper: Run AI Match AND update counts (for creating new items) ---
 const runAIAssistedMatch = async (newItem) => {
     const oppositeType = newItem.type === 'lost' ? 'found' : 'lost';
     
@@ -23,6 +45,7 @@ const runAIAssistedMatch = async (newItem) => {
         if (matchScore >= MATCH_THRESHOLD) {
             potentialMatches.push({ ...otherItem, matchScore });
 
+            // Only increment count when creating a NEW item
             const newMatchCount = (otherItem.matchCount || 0) + 1;
             updatePromises.push(
                 Item.findByIdAndUpdate(otherItem._id, { 
@@ -86,21 +109,17 @@ const getMyItems = async (req, res) => {
 // @route   DELETE /api/items/:id
 const deleteItem = async (req, res) => {
     try {
-        // Find and ensure the item belongs to the user (or admin)
         const item = await Item.findOne({ _id: req.params.id });
 
         if (!item) {
             return res.status(404).json({ message: 'Item not found' });
         }
         
-        // Authorization check
         if (item.userId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
             return res.status(403).json({ message: 'Unauthorized to delete this item' });
         }
         
         await Item.deleteOne({ _id: req.params.id });
-        
-        // Clean up chats related to this item (optional but recommended)
         await Chat.deleteMany({ $or: [{ foundItemId: req.params.id }, { lostItemId: req.params.id }] });
 
         res.json({ message: 'Item deleted successfully' });
@@ -136,28 +155,26 @@ const getPublicItems = async (req, res) => {
     }
 };
 
-// @desc    Get matches for a specific item
+// @desc    Get matches for a specific item (WITHOUT updating counts)
 // @route   GET /api/items/:id/matches
 const getItemMatches = async (req, res) => {
     try {
         const itemId = req.params.id;
         
-        // Find the item
         const item = await Item.findById(itemId).lean();
         
         if (!item) {
             return res.status(404).json({ message: 'Item not found' });
         }
         
-        // Authorization check - user can only see matches for their own items or if admin
         if (item.userId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
             return res.status(403).json({ message: 'Unauthorized to view matches for this item' });
         }
         
         console.log(`🔍 Fetching matches for item: ${item.itemName} (${item.type})`);
         
-        // Run the AI matching algorithm
-        const matches = await runAIAssistedMatch({ ...item, _id: itemId, toObject: () => item });
+        // ✅ Use findMatches instead of runAIAssistedMatch to avoid incrementing counts
+        const matches = await findMatches(item);
         
         console.log(`✅ Found ${matches.length} matches for ${item.itemName}`);
         
@@ -226,7 +243,6 @@ const analyzeImage = async (req, res) => {
         
         console.log('🤖 Calling analyzeImageDescription...');
         
-        // Call the AI service to analyze the image
         const aiAnalysis = await analyzeImageDescription(base64Image, mimeType);
 
         console.log('✅ AI Analysis complete!');
@@ -235,7 +251,6 @@ const analyzeImage = async (req, res) => {
         console.log('📝 Item type detected:', aiAnalysis.structured?.itemType);
         console.log('📸 ========== IMAGE ANALYSIS REQUEST END ==========\n');
         
-        // Return the structured description for client-side use
         res.json(aiAnalysis);
 
     } catch (error) {
@@ -269,5 +284,6 @@ module.exports = {
     runAIAssistedMatch,
     getPublicItems,
     analyzeImage,
-    getItemMatches  // ⭐ NEW: Export the matches endpoint
+    getItemMatches,
+    findMatches  // Export the new function
 };
